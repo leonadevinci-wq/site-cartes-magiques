@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Déclencheur vocal — Mots-clés FR</title>
+  <style>
+    :root { --bg:#0b0b0f; --card:#161622; --fg:#f2f2f7; --muted:#a1a1b5; --accent:#6b63ff; }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Inter,Roboto,Arial,sans-serif;background:radial-gradient(1200px 800px at 80% -10%,#1a1440 0%,#0b0b0f 60%);color:var(--fg)}
+    .wrap{max-width:900px;margin:0 auto;padding:24px}
+    .card{background:var(--card);border:1px solid #28283a;border-radius:16px;padding:16px 18px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    h1{margin:0 0 6px 0;font-size:clamp(22px,3vw,30px)}
+    p{margin:.5em 0}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    button{appearance:none;border:1px solid #3a3a46;background:linear-gradient(180deg,#1d1d26,#15151c);color:#fff;padding:10px 14px;border-radius:14px;font-weight:600;cursor:pointer}
+    button.primary{border-color:#5b51ff;background:linear-gradient(180deg,#6b63ff,#4b45d6)}
+    video{width:100%;max-height:70vh;background:#000;border-radius:12px}
+    .status{display:flex;align-items:center;gap:8px}
+    .dot{width:10px;height:10px;border-radius:50%;background:#666}
+    .listening{background:#22c55e}
+    .error{background:#ef4444}
+    .hint{color:var(--muted);font-size:14px}
+    .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .chip{border:1px dashed #3a3a46;padding:6px 10px;border-radius:999px;color:#d0d4de;font-size:12px;background:transparent}
+    .warn{color:#f59e0b}
+    code{background:#11131a;padding:2px 6px;border-radius:6px;border:1px solid #2a2a35;color:#dfe1ea}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card" style="margin-bottom:16px">
+      <h1>🎤 Déclencheur vocal — Démo FR</h1>
+      <p>Dites l'un des mots-clés : <strong>victoire</strong>, <strong>connexion</strong>, <strong>défi</strong>, <strong>énergie</strong>, <strong>protection</strong></p>
+      <div class="row">
+        <button class="primary" id="startBtn">Démarrer l'écoute</button>
+        <button id="stopBtn">Arrêter</button>
+        <button id="replayBtn">Relire</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div class="status"><span id="dot" class="dot"></span><span id="status">Inactif</span></div>
+      </div>
+      <p class="hint">Astuce iPhone/iPad (Safari) : touchez « Démarrer l'écoute », acceptez le micro, puis prononcez un mot.</p>
+      <div class="chips" id="chips"></div>
+    </div>
+
+    <div class="card">
+      <video id="player" controls playsinline preload="metadata"></video>
+      <p class="hint">Fichier en cours : <code id="currentFile">—</code></p>
+      <p class="hint">Placez vos vidéos dans le dossier <code>media/</code> (mêmes noms que ci-dessous).</p>
+      <ul class="hint" style="line-height:1.6">
+        <li><code>media/victoire.mp4</code></li>
+        <li><code>media/connexion.mp4</code></li>
+        <li><code>media/defi.mp4</code> (écrit sans accent)</li>
+        <li><code>media/energie.mp4</code> (écrit sans accent)</li>
+        <li><code>media/protection.mp4</code></li>
+      </ul>
+      <p class="hint warn" id="missingNote" style="display:none">⚠️ Si la vidéo ne se lance pas, vérifiez que le fichier existe bien et que son nom est exactement le même (majuscules/minuscules comptent).</p>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h2 style="margin:0 0 8px 0">QR code</h2>
+      <p class="hint">Quand ce site est en ligne (HTTPS), ce QR pointera vers cette page.</p>
+      <img id="qr" alt="QR code" style="max-width:220px;width:100%;background:#fff;border-radius:12px;padding:6px" />
+    </div>
+  </div>
+
+<script>
+  const KEYMAP = {
+    'victoire': 'media/victoire.mp4',
+    'connexion': 'media/connexion.mp4',
+    'defi': 'media/defi.mp4',
+    'energie': 'media/energie.mp4',
+    'protection': 'media/protection.mp4'
+  };
+  const ALIASES = {
+    'defi': ['défi', 'defis', 'défis', 'challenge'],
+    'energie': ['énergie', 'energies', 'énergies', 'force', 'vitalité', 'vitalite'],
+    'connexion': ['connection', 'lien', 'liaison'],
+    'victoire': ['gagner','réussite','succes','succès'],
+    'protection': ['protéger','proteger','bouclier','gardien']
+  };
+
+  const $ = s => document.querySelector(s);
+  const player = $('#player');
+  const statusEl = $('#status');
+  const dot = $('#dot');
+  const currentFile = $('#currentFile');
+  const missingNote = $('#missingNote');
+
+  function normalize(s){
+    return (s||'').toString().trim().toLowerCase().normalize('NFD').replace(/\p{Diacritic}+/gu,'');
+  }
+  function lookup(word){
+    const n = normalize(word);
+    if (KEYMAP[n]) return { key:n, src: KEYMAP[n] };
+    for (const [k, list] of Object.entries(ALIASES)){
+      if (list.map(normalize).includes(n)) return { key:k, src:KEYMAP[k] };
+    }
+    return null;
+  }
+  async function play(src){
+    if (!src) return;
+    player.src = src;
+    currentFile.textContent = src;
+    try {
+      await player.play();
+      missingNote.style.display = 'none';
+    } catch(e){
+      try { player.muted = true; await player.play(); setTimeout(()=>player.muted=false, 300); } catch(_) {}
+      missingNote.style.display = 'block';
+      console.warn('Lecture impossible:', e);
+    }
+  }
+  function setMode(mode, text){
+    dot.className = 'dot' + (mode==='listening' ? ' listening' : mode==='error' ? ' error' : '');
+    statusEl.textContent = text || (mode==='listening' ? "À l'écoute…" : 'Inactif');
+  }
+
+  const chips = $('#chips');
+  Object.keys(KEYMAP).forEach(k=>{
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.textContent = k;
+    b.addEventListener('click', ()=> play(KEYMAP[k]));
+    chips.appendChild(b);
+  });
+
+  (function qr(){
+    const url = location.href;
+    const q = 'https://chart.googleapis.com/chart?cht=qr&chs=300x300&chld=M|0&chl=' + encodeURIComponent(url);
+    $('#qr').src = q;
+  })();
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition){
+    setMode('error', 'Ce navigateur ne permet pas la reconnaissance vocale.');
+  } else {
+    const rec = new SpeechRecognition();
+    rec.lang = 'fr-FR';
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.onstart = ()=> setMode('listening', "À l'écoute… parlez");
+    rec.onerror = e => setMode('error', 'Erreur micro : ' + (e.error || 'inconnue'));
+    rec.onend = ()=> setMode('idle', 'Inactif');
+    rec.onresult = evt => {
+      for (let i = evt.resultIndex; i < evt.results.length; i++){
+        const res = evt.results[i];
+        const text = res[0]?.transcript || '';
+        const words = normalize(text).split(/\s+/).filter(Boolean);
+        for (const w of words){
+          const hit = lookup(w);
+          if (hit){ play(hit.src); }
+        }
+      }
+    };
+    document.getElementById('startBtn').addEventListener('click', ()=>{ try{ rec.start(); }catch(_){} });
+    document.getElementById('stopBtn').addEventListener('click', ()=>{ try{ rec.stop(); }catch(_){} });
+  }
+  document.getElementById('replayBtn').addEventListener('click', ()=>{ try{ player.currentTime = 0; player.play(); }catch(_){} });
+</script>
+</body>
+</html>
